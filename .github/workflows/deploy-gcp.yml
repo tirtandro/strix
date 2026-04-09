@@ -15,7 +15,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: us-central1
-  SERVICE_NAME: strix-agent
+  JOB_NAME: strix-agent
   REPOSITORY: strix-repo
 
 jobs:
@@ -47,21 +47,26 @@ jobs:
         run: |-
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      - name: Build and Push
+      - name: Build and Push Image
         run: |-
-          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.JOB_NAME }}:${{ github.sha }}"
           docker build -t "$IMAGE_TAG" -f containers/Dockerfile.cloudrun .
           docker push "$IMAGE_TAG"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Deploy to Cloud Run
-        uses: 'google-github-actions/deploy-cloudrun@v2'
-        with:
-          service: '${{ env.SERVICE_NAME }}'
-          region: '${{ env.REGION }}'
-          image: '${{ env.IMAGE_TAG }}'
-          flags: '--no-allow-unauthenticated --memory=4Gi --cpu=2'
-          env_vars: |
-            STRIX_RUNTIME_BACKEND=local
-            STRIX_SANDBOX_MODE=true
-            STRIX_LLM=vertex_ai/gemini-1.5-pro-002
+      # Deploy sebagai Cloud Run JOB (bukan Service)
+      # Job tidak memerlukan HTTP server — cocok untuk CLI tool
+      - name: Deploy to Cloud Run Job
+        run: |-
+          gcloud run jobs deploy ${{ env.JOB_NAME }} \
+            --image "${{ env.IMAGE_TAG }}" \
+            --region ${{ env.REGION }} \
+            --memory 4Gi \
+            --cpu 2 \
+            --max-retries 0 \
+            --task-timeout 3600 \
+            --set-env-vars "STRIX_RUNTIME_BACKEND=local,STRIX_SANDBOX_MODE=true,STRIX_LLM=vertex_ai/gemini-1.5-pro-002"
+          
+          echo "✅ Cloud Run Job deployed successfully!"
+          echo "To run a scan, execute:"
+          echo "gcloud run jobs execute ${{ env.JOB_NAME }} --region ${{ env.REGION }} --args='--target,https://example.com,--non-interactive'"
