@@ -1,4 +1,4 @@
-# Gunakan image sandbox sebagai base
+# Use the existing sandbox image as base
 FROM ghcr.io/usestrix/strix-sandbox:0.1.13
 
 LABEL description="Strix Unified Agent for Google Cloud Run"
@@ -6,48 +6,32 @@ LABEL description="Strix Unified Agent for Google Cloud Run"
 USER root
 WORKDIR /app
 
-# Pastikan PATH mencakup folder lokal dan bin sistem
-ENV PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/pentester/.local/bin:$PATH"
-ENV PYTHONUNBUFFERED=1
+# Ensure PATH includes all essential binary locations
+ENV PATH="/app/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/pentester/.local/bin:$PATH"
+ENV VIRTUAL_ENV="/app/.venv"
 ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Backend configuration for Cloud Run
 ENV STRIX_RUNTIME_BACKEND=local
 ENV STRIX_SANDBOX_MODE=true
 
-# Karena base image mungkin memiliki struktur venv yang berbeda atau rusak,
-# kita paksa instalasi uv dan bangun venv kita sendiri untuk konsistensi.
+# Force install 'uv' and rebuild venv to ensure consistency and updated source code
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Copy source code terbaru
+# Copy updated agent source code
 COPY strix/ /app/strix/
 COPY pyproject.toml uv.lock ./
 
-# Bangun venv dengan uv secara eksplisit di /app/.venv
-RUN uv sync --frozen --no-dev --extra sandbox
+# Sync dependencies (venv will be at /app/.venv)
+RUN /usr/local/bin/uv sync --frozen --no-dev --extra sandbox
 
-# Fix permissions untuk user pentester agar bisa menjalankan tool server
-RUN chown -R pentester:pentester /app /workspace
+# Copy our specialized Cloud Run entrypoint (handles sudo-less environment)
+COPY containers/cloudrun-entrypoint.sh /usr/local/bin/cloudrun-entrypoint.sh
+RUN chmod +x /usr/local/bin/cloudrun-entrypoint.sh
 
-# Buat entrypoint yang lebih canggih untuk menangani environment
-RUN printf '#!/bin/bash\n\
-set -e\n\
-\n\
-export TOOL_SERVER_TOKEN=$(openssl rand -base64 32)\n\
-export TOOL_SERVER_PORT=48081\n\
-export HOME=/home/pentester\n\
-\n\
-echo "[INFO] Inisialisasi lingkungan..."\n\
-mkdir -p /workspace && chown pentester:pentester /workspace\n\
-\n\
-echo "[INFO] Menjalankan layanan Caido & Tool Server..."\n\
-# Kita gunakan HOME pentester agar poetry/uv tidak mencoba akses /root\n\
-sudo -E -u pentester HOME=/home/pentester /usr/local/bin/docker-entrypoint.sh sleep infinity &\n\
-\n\
-echo "[INFO] Menunggu layanan siap (25 detik)..."\n\
-sleep 25\n\
-\n\
-echo "[INFO] Menjalankan Strix Agent..."\n\
-# Gunakan python dari venv yang baru kita buat\n\
-exec /app/.venv/bin/python -m strix.interface.main "$@"\n' > /usr/local/bin/cloudrun-entrypoint.sh && \
-    chmod +x /usr/local/bin/cloudrun-entrypoint.sh
+# Initialize workspace for scan results
+RUN mkdir -p /workspace && chown -R 1000:1000 /workspace /app
 
+# Default entrypoint for Cloud Run
 ENTRYPOINT ["/usr/local/bin/cloudrun-entrypoint.sh"]

@@ -546,8 +546,9 @@ def main() -> None:  # noqa: PLR0912, PLR0915
     if args.config:
         apply_config_override(args.config)
 
-    check_docker_installed()
-    pull_docker_image()
+    if Config.get("runtime_backend") == "docker":
+        check_docker_installed()
+        pull_docker_image()
 
     validate_environment()
     asyncio.run(warm_up_llm())
