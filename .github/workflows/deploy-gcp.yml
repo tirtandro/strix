@@ -1,0 +1,61 @@
+name: Deploy to GCP Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'strix/**'
+      - 'containers/Dockerfile.cloudrun'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  SERVICE_NAME: strix-agent
+  REPOSITORY: strix-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: 'Docker Auth'
+        run: |-
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push
+        run: |-
+          IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          docker build -t "$IMAGE_TAG" -f containers/Dockerfile.cloudrun .
+          docker push "$IMAGE_TAG"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: '${{ env.SERVICE_NAME }}'
+          region: '${{ env.REGION }}'
+          image: '${{ env.IMAGE_TAG }}'
+          # Cloud Run Jobs might be better, but standard deploy is for Services.
+          # For Jobs, use: gcloud run jobs deploy
+          flags: '--no-allow-unauthenticated --memory=4Gi --cpu=2'
+          env_vars: |
+            STRIX_RUNTIME_BACKEND=local
+            STRIX_SANDBOX_MODE=true
+            STRIX_LLM=vertex_ai/gemini-1.5-pro-002
