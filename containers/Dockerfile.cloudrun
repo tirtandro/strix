@@ -24,7 +24,7 @@ COPY strix/ /app/strix/
 COPY pyproject.toml uv.lock ./
 
 # Sync dependencies (venv will be at /app/.venv)
-RUN /usr/local/bin/uv sync --frozen --no-dev --extra sandbox
+RUN /usr/local/bin/uv sync --frozen --no-dev --extra sandbox --extra vertex
 
 # Copy our specialized Cloud Run entrypoint (handles sudo-less environment)
 COPY containers/cloudrun-entrypoint.sh /usr/local/bin/cloudrun-entrypoint.sh
