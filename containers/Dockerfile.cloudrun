@@ -6,40 +6,48 @@ LABEL description="Strix Unified Agent for Google Cloud Run"
 USER root
 WORKDIR /app
 
-# Pastikan PATH mencakup semua lokasi penting untuk root
-ENV PATH="/app/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/pentester/.local/bin:$PATH"
-ENV VIRTUAL_ENV="/app/.venv"
-ENV PYTHONPATH=/app
+# Pastikan PATH mencakup folder lokal dan bin sistem
+ENV PATH="/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/pentester/.local/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-
-# Konfigurasi Runtime Lokal
+ENV PYTHONPATH=/app
 ENV STRIX_RUNTIME_BACKEND=local
 ENV STRIX_SANDBOX_MODE=true
 
-# Update source code agen
-COPY strix/ /app/strix/
+# Karena base image mungkin memiliki struktur venv yang berbeda atau rusak,
+# kita paksa instalasi uv dan bangun venv kita sendiri untuk konsistensi.
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Buat ulang script entrypoint dengan path absolut dan pengecekan sederhana
+# Copy source code terbaru
+COPY strix/ /app/strix/
+COPY pyproject.toml uv.lock ./
+
+# Bangun venv dengan uv secara eksplisit di /app/.venv
+RUN uv sync --frozen --no-dev --extra sandbox
+
+# Fix permissions untuk user pentester agar bisa menjalankan tool server
+RUN chown -R pentester:pentester /app /workspace
+
+# Buat entrypoint yang lebih canggih untuk menangani environment
 RUN printf '#!/bin/bash\n\
 set -e\n\
 \n\
 export TOOL_SERVER_TOKEN=$(openssl rand -base64 32)\n\
 export TOOL_SERVER_PORT=48081\n\
+export HOME=/home/pentester\n\
 \n\
-echo "[INFO] Memberikan izin pada folder workspace..."\n\
+echo "[INFO] Inisialisasi lingkungan..."\n\
 mkdir -p /workspace && chown pentester:pentester /workspace\n\
 \n\
-echo "[INFO] Menjalankan Caido proxy dan tool server di background..."\n\
-# Jalankan entrypoint original untuk start Caido, lalu background-kan\n\
-/usr/local/bin/docker-entrypoint.sh sleep infinity &\n\
+echo "[INFO] Menjalankan layanan Caido & Tool Server..."\n\
+# Kita gunakan HOME pentester agar poetry/uv tidak mencoba akses /root\n\
+sudo -E -u pentester HOME=/home/pentester /usr/local/bin/docker-entrypoint.sh sleep infinity &\n\
 \n\
-echo "[INFO] Menunggu layanan siap (20 detik)..."\n\
-sleep 20\n\
+echo "[INFO] Menunggu layanan siap (25 detik)..."\n\
+sleep 25\n\
 \n\
-echo "[INFO] Menjalankan Strix Agent dengan argumen: $@"\n\
-# Jalankan menggunakan python dari venv secara langsung dengan path absolut\n\
+echo "[INFO] Menjalankan Strix Agent..."\n\
+# Gunakan python dari venv yang baru kita buat\n\
 exec /app/.venv/bin/python -m strix.interface.main "$@"\n' > /usr/local/bin/cloudrun-entrypoint.sh && \
     chmod +x /usr/local/bin/cloudrun-entrypoint.sh
 
-# Gunakan path absolut untuk ENTRYPOINT
 ENTRYPOINT ["/usr/local/bin/cloudrun-entrypoint.sh"]
