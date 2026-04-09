@@ -1,4 +1,4 @@
-# Use the existing sandbox image as base (has all security tools + venv pre-installed)
+# Gunakan image sandbox sebagai base
 FROM ghcr.io/usestrix/strix-sandbox:0.1.13
 
 LABEL description="Strix Unified Agent for Google Cloud Run"
@@ -6,22 +6,40 @@ LABEL description="Strix Unified Agent for Google Cloud Run"
 USER root
 WORKDIR /app
 
-# Update PATH to ensure /app/.venv and system tools are accessible
-ENV PATH="/app/.venv/bin:/usr/local/bin:/home/pentester/go/bin:/home/pentester/.local/bin:/home/pentester/.npm-global/bin:$PATH"
+# Pastikan PATH mencakup semua lokasi penting untuk root
+ENV PATH="/app/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/pentester/.local/bin:$PATH"
 ENV VIRTUAL_ENV="/app/.venv"
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Configure for Cloud Run: use local runtime (no Docker-in-Docker required)
+# Konfigurasi Runtime Lokal
 ENV STRIX_RUNTIME_BACKEND=local
 ENV STRIX_SANDBOX_MODE=true
 
-# Copy only the updated agent source code.
-# The venv and all dependencies are already installed in the base image.
+# Update source code agen
 COPY strix/ /app/strix/
 
-# Create the Cloud Run startup script
-RUN printf '#!/bin/bash\nset -e\n\nexport TOOL_SERVER_TOKEN=$(openssl rand -base64 32)\nexport TOOL_SERVER_PORT=48081\n\necho "Booting Caido proxy and tool server..."\n/usr/local/bin/docker-entrypoint.sh sleep 1 &\n\necho "Waiting for services (15s)..."\nsleep 15\n\necho "Starting Strix Agent..."\nexec /app/.venv/bin/python -m strix.interface.main "$@"\n' > /usr/local/bin/cloudrun-entrypoint.sh \
-    && chmod +x /usr/local/bin/cloudrun-entrypoint.sh
+# Buat ulang script entrypoint dengan path absolut dan pengecekan sederhana
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+export TOOL_SERVER_TOKEN=$(openssl rand -base64 32)\n\
+export TOOL_SERVER_PORT=48081\n\
+\n\
+echo "[INFO] Memberikan izin pada folder workspace..."\n\
+mkdir -p /workspace && chown pentester:pentester /workspace\n\
+\n\
+echo "[INFO] Menjalankan Caido proxy dan tool server di background..."\n\
+# Jalankan entrypoint original untuk start Caido, lalu background-kan\n\
+/usr/local/bin/docker-entrypoint.sh sleep infinity &\n\
+\n\
+echo "[INFO] Menunggu layanan siap (20 detik)..."\n\
+sleep 20\n\
+\n\
+echo "[INFO] Menjalankan Strix Agent dengan argumen: $@"\n\
+# Jalankan menggunakan python dari venv secara langsung dengan path absolut\n\
+exec /app/.venv/bin/python -m strix.interface.main "$@"\n' > /usr/local/bin/cloudrun-entrypoint.sh && \
+    chmod +x /usr/local/bin/cloudrun-entrypoint.sh
 
-ENTRYPOINT ["cloudrun-entrypoint.sh"]
+# Gunakan path absolut untuk ENTRYPOINT
+ENTRYPOINT ["/usr/local/bin/cloudrun-entrypoint.sh"]
