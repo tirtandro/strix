@@ -41,6 +41,14 @@ STRIX_MODEL_MAP: dict[str, str] = {
     "gemini-3-flash-preview": "gemini/gemini-3-flash-preview",
     "glm-5": "openrouter/z-ai/glm-5",
     "glm-4.7": "openrouter/z-ai/glm-4.7",
+    # Vertex AI model aliases (canonical names used by LiteLLM for capability lookups)
+    "vertex_ai/gemini-3-pro-preview": "vertex_ai/gemini-3-pro-preview",
+    "vertex_ai/gemini-3-flash-preview": "vertex_ai/gemini-3-flash-preview",
+    "vertex_ai/gemini-2.5-pro-preview": "vertex_ai/gemini-2.5-pro-preview",
+    "vertex_ai/gemini-2.0-flash": "vertex_ai/gemini-2.0-flash",
+    "vertex_ai/gemini-2.0-flash-lite": "vertex_ai/gemini-2.0-flash-lite",
+    "vertex_ai/gemini-1.5-pro": "vertex_ai/gemini-1.5-pro",
+    "vertex_ai/gemini-1.5-flash": "vertex_ai/gemini-1.5-flash",
 }
 
 

@@ -1,0 +1,56 @@
+# Vertex AI Custom Job – Strix Batch Scanner
+#
+# Use this to run a one-off headless Strix scan as a Vertex AI Custom Job.
+# Results are written to the GCS bucket mounted as /gcs/<BUCKET>.
+#
+# Prerequisites:
+#   1. The Strix container image pushed to Google Artifact Registry (GAR).
+#   2. A GCS bucket to receive scan results.
+#   3. A service account with roles/aiplatform.user + roles/storage.objectAdmin.
+#
+# Usage (gcloud):
+#   gcloud ai custom-jobs create \
+#     --region=YOUR_REGION \
+#     --display-name="strix-scan-$(date +%Y%m%d-%H%M%S)" \
+#     --config=deploy/vertex-ai/custom_job.yaml
+#
+# Placeholder values (replace before submitting):
+#   YOUR_PROJECT_ID   – GCP project ID
+#   YOUR_REGION       – Vertex AI region, e.g. us-central1
+#   YOUR_GAR_IMAGE    – full Artifact Registry path, e.g.
+#                       us-central1-docker.pkg.dev/YOUR_PROJECT_ID/strix/strix-agent:latest
+#   YOUR_GCS_BUCKET   – GCS bucket name, e.g. strix-scan-results
+#   YOUR_SA_EMAIL     – service account email, e.g. strix-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com
+#   YOUR_TARGET       – scan target URL or repo, e.g. https://your-app.com
+
+workerPoolSpecs:
+  - machineSpec:
+      machineType: n1-standard-4
+    replicaCount: 1
+    containerSpec:
+      imageUri: YOUR_GAR_IMAGE
+      command:
+        - strix
+      args:
+        - "--non-interactive"
+        - "--target"
+        - "YOUR_TARGET"
+        - "--scan-mode"
+        - "standard"
+      env:
+        - name: STRIX_LLM
+          value: "vertex_ai/gemini-3-pro-preview"
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "YOUR_PROJECT_ID"
+        - name: GOOGLE_CLOUD_LOCATION
+          value: "YOUR_REGION"
+        - name: STRIX_REASONING_EFFORT
+          value: "high"
+        # Scan results are written here; map to GCS via baseOutputDirectory below
+        - name: STRIX_OUTPUT_DIR
+          value: "/gcs/YOUR_GCS_BUCKET/strix_runs"
+
+serviceAccount: YOUR_SA_EMAIL
+
+baseOutputDirectory:
+  outputUriPrefix: "gs://YOUR_GCS_BUCKET/vertex-ai-jobs"

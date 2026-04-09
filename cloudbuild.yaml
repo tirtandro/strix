@@ -1,0 +1,98 @@
+# Cloud Build pipeline for Strix on GCP
+#
+# Builds and pushes both the Strix sandbox image and the Strix agent image to
+# Google Artifact Registry, then rolls out the new image to GKE.
+#
+# Prerequisites:
+#   1. Cloud Build service account has:
+#        - roles/artifactregistry.writer
+#        - roles/container.developer  (for GKE rollout step)
+#   2. Substitution variables configured in the Cloud Build trigger or passed on
+#      the CLI (see _* variables below).
+#
+# Usage (manual trigger):
+#   gcloud builds submit . \
+#     --config=cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_PROJECT_ID=$(gcloud config get-value project)
+#
+# Substitution variables:
+#   _REGION          – GCP region for Artifact Registry and Vertex AI (default: us-central1)
+#   _PROJECT_ID      – GCP project ID (defaults to $PROJECT_ID set by Cloud Build)
+#   _GAR_REPO        – Artifact Registry repository name (default: strix)
+#   _GKE_CLUSTER     – GKE cluster name (default: strix-cluster)
+#   _GKE_ZONE        – GKE cluster zone/region (default: us-central1)
+
+substitutions:
+  _REGION: us-central1
+  _PROJECT_ID: $PROJECT_ID
+  _GAR_REPO: strix
+  _GKE_CLUSTER: strix-cluster
+  _GKE_ZONE: us-central1
+
+steps:
+  # ── Step 1: Build and push the sandbox image ──────────────────────────────
+  - id: build-sandbox
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox:$SHORT_SHA"
+      - --tag
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox:latest"
+      - --file
+      - containers/Dockerfile
+      - .
+    waitFor: ["-"]  # Start immediately
+
+  - id: push-sandbox
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox"
+    waitFor: [build-sandbox]
+
+  # ── Step 2: Build and push the Strix agent image ──────────────────────────
+  - id: build-agent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent:$SHORT_SHA"
+      - --tag
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent:latest"
+      - --build-arg
+      - "SANDBOX_IMAGE=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox:$SHORT_SHA"
+      - .
+    waitFor: [push-sandbox]
+
+  - id: push-agent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent"
+    waitFor: [build-agent]
+
+  # ── Step 3: Roll out to GKE ───────────────────────────────────────────────
+  - id: deploy-gke
+    name: gcr.io/cloud-builders/kubectl
+    args:
+      - set
+      - image
+      - deployment/strix-agent
+      - "strix-agent=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent:$SHORT_SHA"
+      - --namespace=strix
+    env:
+      - CLOUDSDK_COMPUTE_ZONE=$_GKE_ZONE
+      - CLOUDSDK_CONTAINER_CLUSTER=$_GKE_CLUSTER
+    waitFor: [push-agent]
+
+images:
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox:$SHORT_SHA"
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-sandbox:latest"
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent:$SHORT_SHA"
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_GAR_REPO}/strix-agent:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY

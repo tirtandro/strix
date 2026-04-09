@@ -1,0 +1,143 @@
+# GKE Deployment for Strix
+#
+# Prerequisites:
+#   1. A GKE cluster with a privileged node pool (needed for Docker-in-Docker).
+#   2. Workload Identity configured on the node pool so pods can call Vertex AI
+#      without mounting a service account key file.
+#   3. The Strix container image pushed to Google Artifact Registry (GAR).
+#   4. A GCS bucket created to persist scan results.
+#   5. A Kubernetes Secret named "strix-config" holding STRIX_LLM and any other
+#      required env vars (see strix-config-secret.yaml).
+#
+# Usage:
+#   # Replace placeholder values below then apply:
+#   kubectl apply -f deploy/gke/
+#
+# Placeholder values (replace before applying):
+#   YOUR_PROJECT_ID     – GCP project ID
+#   YOUR_REGION         – Vertex AI / GKE region, e.g. us-central1
+#   YOUR_GAR_IMAGE      – full Artifact Registry path, e.g.
+#                         us-central1-docker.pkg.dev/YOUR_PROJECT_ID/strix/strix-agent:latest
+#   YOUR_GCS_BUCKET     – GCS bucket name for scan results, e.g. strix-scan-results
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strix
+
+---
+# ServiceAccount bound to a GCP service account via Workload Identity
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: strix-agent
+  namespace: strix
+  annotations:
+    # Replace with your GCP service account that has roles/aiplatform.user
+    iam.gke.io/gcp-service-account: strix-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
+---
+# PersistentVolume backed by a GCS bucket (requires the GCS CSI driver)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: strix-scan-results
+  namespace: strix
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard-rwx  # adjust to your cluster's StorageClass
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strix-agent
+  namespace: strix
+  labels:
+    app: strix-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: strix-agent
+  template:
+    metadata:
+      labels:
+        app: strix-agent
+    spec:
+      serviceAccountName: strix-agent
+
+      # Docker-in-Docker requires a privileged container.
+      # If your security policy disallows this, use a remote sandbox backend instead.
+      securityContext:
+        runAsNonRoot: false
+
+      containers:
+        - name: strix-agent
+          image: YOUR_GAR_IMAGE
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: true  # Required for Docker-in-Docker sandbox
+
+          env:
+            # --- LLM (Vertex AI) ---
+            - name: STRIX_LLM
+              valueFrom:
+                secretKeyRef:
+                  name: strix-config
+                  key: STRIX_LLM
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "YOUR_PROJECT_ID"
+            - name: GOOGLE_CLOUD_LOCATION
+              value: "YOUR_REGION"
+
+            # --- Optional: additional Strix settings ---
+            - name: STRIX_REASONING_EFFORT
+              value: "high"
+
+          volumeMounts:
+            - name: scan-results
+              mountPath: /workspace/strix_runs
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+
+      volumes:
+        - name: scan-results
+          persistentVolumeClaim:
+            claimName: strix-scan-results
+        # Mount the host Docker socket so the agent can spin up sandbox containers.
+        # Alternatively, run a Docker-in-Docker sidecar (dind).
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+
+---
+# Optional: expose a REST / health endpoint (adapt as needed)
+apiVersion: v1
+kind: Service
+metadata:
+  name: strix-agent
+  namespace: strix
+spec:
+  selector:
+    app: strix-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: ClusterIP

@@ -253,6 +253,11 @@ class LLM:
             args["api_key"] = self.config.api_key
         if self.config.api_base:
             args["api_base"] = self.config.api_base
+        if self._is_vertex_ai():
+            if self.config.vertex_project:
+                args["vertex_project"] = self.config.vertex_project
+            if self.config.vertex_location:
+                args["vertex_location"] = self.config.vertex_location
         if self._supports_reasoning():
             args["reasoning_effort"] = self._reasoning_effort
 
@@ -330,6 +335,11 @@ class LLM:
         if not self.config.model_name:
             return False
         return any(p in self.config.model_name.lower() for p in ["anthropic/", "claude"])
+
+    def _is_vertex_ai(self) -> bool:
+        if not self.config.model_name:
+            return False
+        return self.config.model_name.startswith("vertex_ai/")
 
     def _supports_vision(self) -> bool:
         try:

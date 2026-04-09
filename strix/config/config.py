@@ -22,6 +22,12 @@ class Config:
     strix_llm_max_retries = "5"
     strix_memory_compressor_timeout = "30"
     llm_timeout = "300"
+
+    # Vertex AI Configuration
+    google_cloud_project = None
+    google_cloud_location = "us-central1"
+    google_application_credentials = None
+
     _LLM_CANONICAL_NAMES = (
         "strix_llm",
         "llm_api_key",
@@ -33,6 +39,9 @@ class Config:
         "strix_llm_max_retries",
         "strix_memory_compressor_timeout",
         "llm_timeout",
+        "google_cloud_project",
+        "google_cloud_location",
+        "google_application_credentials",
     )
 
     # Tool & Feature Configuration
@@ -187,23 +196,33 @@ def save_current_config() -> bool:
     return Config.save_current()
 
 
-def resolve_llm_config() -> tuple[str | None, str | None, str | None]:
-    """Resolve LLM model, api_key, and api_base based on STRIX_LLM prefix.
+def resolve_llm_config() -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """Resolve LLM model, api_key, api_base, vertex_project, and vertex_location.
 
     Returns:
-        tuple: (model_name, api_key, api_base)
+        tuple: (model_name, api_key, api_base, vertex_project, vertex_location)
         - model_name: Original model name (strix/ prefix preserved for display)
-        - api_key: LLM API key
+        - api_key: LLM API key (None for Vertex AI - uses ADC)
         - api_base: API base URL (auto-set to STRIX_API_BASE for strix/ models)
+        - vertex_project: GCP project ID (only for vertex_ai/ models)
+        - vertex_location: GCP region (only for vertex_ai/ models)
     """
     model = Config.get("strix_llm")
     if not model:
-        return None, None, None
+        return None, None, None, None, None
 
     api_key = Config.get("llm_api_key")
+    vertex_project: str | None = None
+    vertex_location: str | None = None
 
     if model.startswith("strix/"):
         api_base: str | None = STRIX_API_BASE
+    elif model.startswith("vertex_ai/"):
+        # Vertex AI uses Application Default Credentials - no API key needed.
+        api_key = None
+        api_base = None
+        vertex_project = Config.get("google_cloud_project")
+        vertex_location = Config.get("google_cloud_location")
     else:
         api_base = (
             Config.get("llm_api_base")
@@ -212,4 +231,4 @@ def resolve_llm_config() -> tuple[str | None, str | None, str | None]:
             or Config.get("ollama_api_base")
         )
 
-    return model, api_key, api_base
+    return model, api_key, api_base, vertex_project, vertex_location

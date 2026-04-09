@@ -1,0 +1,99 @@
+name: Deploy to Vertex AI / GKE
+
+# Trigger on pushes to main or on explicit workflow dispatch.
+# The workflow authenticates to GCP using Workload Identity Federation so that
+# no long-lived service account key files are stored as GitHub secrets.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (staging | production)"
+        required: true
+        default: staging
+
+env:
+  # ── Replace these with your real values ──────────────────────────────────
+  GCP_PROJECT_ID: YOUR_PROJECT_ID
+  GCP_REGION: us-central1
+  GAR_REPO: strix
+  GKE_CLUSTER: strix-cluster
+  GKE_ZONE: us-central1
+  # Workload Identity provider created via:
+  #   gcloud iam workload-identity-pools providers create-oidc github \
+  #     --project=YOUR_PROJECT_ID \
+  #     --location=global \
+  #     --workload-identity-pool=github-pool \
+  #     --issuer-uri="https://token.actions.githubusercontent.com" \
+  #     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository"
+  WIF_PROVIDER: projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github
+  WIF_SERVICE_ACCOUNT: strix-agent@YOUR_PROJECT_ID.iam.gserviceaccount.com
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    # Required permissions for Workload Identity Federation
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Authenticate to GCP via Workload Identity Federation ─────────────
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      # ── Configure Docker to use Artifact Registry ─────────────────────────
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # ── Submit Cloud Build job ─────────────────────────────────────────────
+      - name: Run Cloud Build
+        run: |
+          gcloud builds submit . \
+            --config=cloudbuild.yaml \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --substitutions="_REGION=${{ env.GCP_REGION }},_PROJECT_ID=${{ env.GCP_PROJECT_ID }},_GAR_REPO=${{ env.GAR_REPO }},_GKE_CLUSTER=${{ env.GKE_CLUSTER }},_GKE_ZONE=${{ env.GKE_ZONE }},SHORT_SHA=${GITHUB_SHA::7}"
+
+  # ── Optional: run a quick Strix scan after deployment ─────────────────────
+  post-deploy-scan:
+    name: Post-deploy Security Scan
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Install Strix
+        run: curl -sSL https://strix.ai/install | bash
+
+      - name: Run Strix scan (Vertex AI backend)
+        env:
+          STRIX_LLM: "vertex_ai/gemini-3-pro-preview"
+          GOOGLE_CLOUD_PROJECT: ${{ env.GCP_PROJECT_ID }}
+          GOOGLE_CLOUD_LOCATION: ${{ env.GCP_REGION }}
+          # GOOGLE_APPLICATION_CREDENTIALS is automatically set by the auth step above
+        run: strix -n --target ./ --scan-mode quick
