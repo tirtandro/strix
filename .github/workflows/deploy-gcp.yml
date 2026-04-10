@@ -65,7 +65,7 @@ jobs:
             --cpu 2 \
             --max-retries 0 \
             --task-timeout 3600 \
-            --set-env-vars "STRIX_RUNTIME_BACKEND=local,STRIX_SANDBOX_MODE=true,STRIX_LLM=vertex_ai/gemini-1.5-pro-002"
+            --set-env-vars "STRIX_RUNTIME_BACKEND=local,STRIX_SANDBOX_MODE=true,STRIX_LLM=vertex_ai/gemini-3-flash-preview"
           
           echo "✅ Cloud Run Job deployed successfully!"
           echo "To run a scan, execute:"
