@@ -37,8 +37,10 @@ STRIX_MODEL_MAP: dict[str, str] = {
     "gpt-5.2": "openai/gpt-5.2",
     "gpt-5.1": "openai/gpt-5.1",
     "gpt-5.4": "openai/gpt-5.4",
-    "gemini-3-pro-preview": "gemini/gemini-3-pro-preview",
-    "gemini-3-flash-preview": "gemini/gemini-3-flash-preview",
+    "gemini-3-pro-preview": "vertex_ai/gemini-3-pro-preview",
+    "gemini-3-flash-preview": "vertex_ai/gemini-3-flash-preview",
+    "gemini-1.5-pro": "vertex_ai/gemini-1.5-pro",
+    "gemini-1.5-flash": "vertex_ai/gemini-1.5-flash",
     "glm-5": "openrouter/z-ai/glm-5",
     "glm-4.7": "openrouter/z-ai/glm-4.7",
 }
