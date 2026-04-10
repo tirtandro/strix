@@ -48,6 +48,8 @@ export https_proxy=http://127.0.0.1:${CAIDO_PORT}
 export HTTP_PROXY=http://127.0.0.1:${CAIDO_PORT}
 export HTTPS_PROXY=http://127.0.0.1:${CAIDO_PORT}
 export ALL_PROXY=http://127.0.0.1:${CAIDO_PORT}
+export NO_PROXY="localhost,127.0.0.1,api.openai.com,generativelanguage.googleapis.com,oauth2.googleapis.com,googleapis.com"
+export no_proxy="localhost,127.0.0.1,api.openai.com,generativelanguage.googleapis.com,oauth2.googleapis.com,googleapis.com"
 export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
