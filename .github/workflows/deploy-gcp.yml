@@ -65,6 +65,7 @@ jobs:
             --cpu 2 \
             --max-retries 0 \
             --task-timeout 3600 \
+            --service-account "strix-deployer@strix-project-marshal.iam.gserviceaccount.com" \
             --set-env-vars "STRIX_RUNTIME_BACKEND=local,STRIX_SANDBOX_MODE=true,STRIX_LLM=vertex_ai/gemini-3-flash-preview"
           
           echo "✅ Cloud Run Job deployed successfully!"
