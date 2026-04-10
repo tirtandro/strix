@@ -6,8 +6,7 @@ on:
       - main
     paths:
       - 'strix/**'
-      - 'containers/Dockerfile.cloudrun'
-      - 'containers/Dockerfile'
+      - 'containers/**'
       - 'pyproject.toml'
       - '.github/workflows/deploy-gcp.yml'
   workflow_dispatch:
