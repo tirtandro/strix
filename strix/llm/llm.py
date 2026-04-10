@@ -157,7 +157,7 @@ class LLM:
         self, conversation_history: list[dict[str, Any]]
     ) -> AsyncIterator[LLMResponse]:
         messages = self._prepare_messages(conversation_history)
-        max_retries = int(Config.get("strix_llm_max_retries") or "5")
+        max_retries = int(Config.get("strix_llm_max_retries") or "10")
 
         for attempt in range(max_retries + 1):
             try:
@@ -167,7 +167,12 @@ class LLM:
             except Exception as e:  # noqa: BLE001
                 if attempt >= max_retries or not self._should_retry(e):
                     self._raise_error(e)
-                wait = min(90, 2 * (2**attempt))
+                # Wait longer for rate limit errors (RateLimitError = 429)
+                is_rate_limit = isinstance(e, litellm.RateLimitError) or getattr(e, "status_code", None) == 429
+                if is_rate_limit:
+                    wait = min(120, 30 * (attempt + 1))
+                else:
+                    wait = min(90, 2 * (2**attempt))
                 await asyncio.sleep(wait)
 
     async def _stream(self, messages: list[dict[str, Any]]) -> AsyncIterator[LLMResponse]:
